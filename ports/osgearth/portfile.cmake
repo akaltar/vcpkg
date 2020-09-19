@@ -1,5 +1,3 @@
-include(vcpkg_common_functions)
-
 vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY ONLY_DYNAMIC_CRT)
 
 file(GLOB OSG_PLUGINS_SUBDIR ${CURRENT_INSTALLED_DIR}/tools/osg/osgPlugins-*)
@@ -9,20 +7,14 @@ if(NOT OSG_PLUGINS_SUBDIR_LENGTH EQUAL 1)
 endif()
 string(REPLACE "${CURRENT_INSTALLED_DIR}/tools/osg/" "" OSG_PLUGINS_SUBDIR "${OSG_PLUGINS_SUBDIR}")
 
-vcpkg_download_distfile(
-    VS2017PATCH
-    URLS "https://github.com/remoe/osgearth/commit/f7081cc4f9991c955c6a0ef7b7b50e48360d14fd.diff"
-    FILENAME "osgearth-f7081cc4f9991c955c6a0ef7b7b50e48360d14fd.patch"
-    SHA512 eadb47a5713c00c05add8627e5cad22844db041da34081d59104151a1a1e2d5ac9552909d67171bfc0449a3e4d2930dd3a7914d3ec7ef7ff1015574e9c9a6105
-)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO gwaldron/osgearth
-    REF osgearth-2.10.1
-    SHA512 a74e6922ae29f85b4227b23a83dbccba92e08b7880533c281ceb244703c38b51a02823fdee3199c975c969db963b35ebad0e3bfed3c1e218a36d130b20a48e5b
+    REF 90ad04f281cbc87ffc45bed847ebaaecb188e593     #version 3.0
+    SHA512 d1d59ae65cb4ef8a71e01b42411029e61bef20e2fd6d95b81c091d7d32b8c30f96d3156d7fd28e177ca83fd74ed113b9e31bf5ef360757524beb7cec7ced4996
     HEAD_REF master
-    PATCHES ${VS2017PATCH}
+    PATCHES 
+  	  RocksDB.patch
 )
 
 vcpkg_configure_cmake(
@@ -33,7 +25,7 @@ vcpkg_configure_cmake(
 vcpkg_install_cmake()
 
 #Release
-set(OSGEARTH_TOOL_PATH ${CURRENT_PACKAGES_DIR}/tools/osgearth)
+set(OSGEARTH_TOOL_PATH ${CURRENT_PACKAGES_DIR}/tools/${PORT})
 set(OSGEARTH_TOOL_PLUGIN_PATH ${OSGEARTH_TOOL_PATH}/${OSG_PLUGINS_SUBDIR})
 
 file(MAKE_DIRECTORY ${OSGEARTH_TOOL_PATH})
@@ -51,7 +43,7 @@ file(REMOVE_RECURSE ${OSGDB_PLUGINS})
 #Debug
 file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
 
-set(OSGEARTH_DEBUG_TOOL_PATH ${CURRENT_PACKAGES_DIR}/debug/tools/osgearth)
+set(OSGEARTH_DEBUG_TOOL_PATH ${CURRENT_PACKAGES_DIR}/debug/tools/${PORT})
 set(OSGEARTH_DEBUG_TOOL_PLUGIN_PATH ${OSGEARTH_DEBUG_TOOL_PATH}/${OSG_PLUGINS_SUBDIR})
 
 file(MAKE_DIRECTORY ${OSGEARTH_DEBUG_TOOL_PATH})
@@ -68,5 +60,4 @@ file(REMOVE_RECURSE ${OSGDB_DEBUG_PLUGINS})
 
 
 # Handle copyright
-file(COPY ${SOURCE_PATH}/LICENSE.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/osgearth)
-file(RENAME ${CURRENT_PACKAGES_DIR}/share/osgearth/LICENSE.txt ${CURRENT_PACKAGES_DIR}/share/osgearth/copyright)
+file(INSTALL ${SOURCE_PATH}/LICENSE.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)

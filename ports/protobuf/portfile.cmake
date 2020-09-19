@@ -1,19 +1,18 @@
-include(vcpkg_common_functions)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO google/protobuf
-    REF v3.7.1
-    SHA512 7d4cfabd4bd55926336a3baafa0bc1f1f15380b1b2af945f70a2bb3ba24c6ac6567f49c492326d6d1c43a488166bff178f9266377758a05d8541d8b242f4f80f
+    REPO protocolbuffers/protobuf
+    REF fde7cf7358ec7cd69e8db9be4f1fa6a5c431386a    #v3.13.0
+    SHA512 b458410311a0905048c86d70ded263ae0cbb6693fd42cba730d3a95c69ca533cf453eb15c5f8bf8b00003ddc63fe96b3c4242907e2d6b00d5bec5d37b2ae1c5e
     HEAD_REF master
     PATCHES
         fix-uwp.patch
-        disable-lite.patch
+        fix-android-log.patch
+        fix-static-build.patch
 )
 
 if(CMAKE_HOST_WIN32 AND NOT VCPKG_TARGET_ARCHITECTURE MATCHES "x64" AND NOT VCPKG_TARGET_ARCHITECTURE MATCHES "x86")
     set(protobuf_BUILD_PROTOC_BINARIES OFF)
-elseif(CMAKE_HOST_WIN32 AND VCPKG_CMAKE_SYSTEM_NAME)
+elseif(CMAKE_HOST_WIN32 AND NOT VCPKG_TARGET_IS_MINGW AND NOT (VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_UWP))
     set(protobuf_BUILD_PROTOC_BINARIES OFF)
 else()
     set(protobuf_BUILD_PROTOC_BINARIES ON)
@@ -24,33 +23,37 @@ if(NOT protobuf_BUILD_PROTOC_BINARIES AND NOT EXISTS ${CURRENT_INSTALLED_DIR}/..
 endif()
 
 if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
-    set(protobuf_BUILD_SHARED_LIBS ON)
+  set(VCPKG_BUILD_SHARED_LIBS ON)
 else()
-    set(protobuf_BUILD_SHARED_LIBS OFF)
+  set(VCPKG_BUILD_SHARED_LIBS OFF)
 endif()
 
-if(VCPKG_CRT_LINKAGE STREQUAL "static")
-    set(protobuf_MSVC_STATIC_RUNTIME ON)
+if(VCPKG_CRT_LINKAGE STREQUAL "dynamic")
+  set(VCPKG_BUILD_STATIC_CRT OFF)
 else()
-    set(protobuf_MSVC_STATIC_RUNTIME OFF)
+  set(VCPKG_BUILD_STATIC_CRT ON)
 endif()
 
-if("zlib" IN_LIST FEATURES)
-    set(protobuf_WITH_ZLIB ON)
-else()
-    set(protobuf_WITH_ZLIB OFF)
+vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+	zlib	protobuf_WITH_ZLIB
+)
+
+if (VCPKG_DOWNLOAD_MODE)
+    # download PKGCONFIG in download mode which is used in `vcpkg_fixup_pkgconfig()` at the end of this script.
+    # download it here because `vcpkg_configure_cmake()` halts execution in download mode when running configure process.
+    vcpkg_find_acquire_program(PKGCONFIG)
 endif()
 
 vcpkg_configure_cmake(
     SOURCE_PATH ${SOURCE_PATH}/cmake
     PREFER_NINJA
     OPTIONS
-        -Dprotobuf_BUILD_SHARED_LIBS=${protobuf_BUILD_SHARED_LIBS}
-        -Dprotobuf_MSVC_STATIC_RUNTIME=${protobuf_MSVC_STATIC_RUNTIME}
-        -Dprotobuf_WITH_ZLIB=${protobuf_WITH_ZLIB}
+        -Dprotobuf_BUILD_SHARED_LIBS=${VCPKG_BUILD_SHARED_LIBS}
+        -Dprotobuf_MSVC_STATIC_RUNTIME=${VCPKG_BUILD_STATIC_CRT}
         -Dprotobuf_BUILD_TESTS=OFF
         -DCMAKE_INSTALL_CMAKEDIR:STRING=share/protobuf
         -Dprotobuf_BUILD_PROTOC_BINARIES=${protobuf_BUILD_PROTOC_BINARIES}
+         ${FEATURE_OPTIONS}
 )
 
 vcpkg_install_cmake()
@@ -75,9 +78,10 @@ else()
 endif()
 
 if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "release")
-    file(READ ${CURRENT_PACKAGES_DIR}/share/protobuf/protobuf-targets-release.cmake RELEASE_MODULE)
-    string(REPLACE "\${_IMPORT_PREFIX}/bin/protoc${EXECUTABLE_SUFFIX}" "\${_IMPORT_PREFIX}/tools/protobuf/protoc${EXECUTABLE_SUFFIX}" RELEASE_MODULE "${RELEASE_MODULE}")
-    file(WRITE ${CURRENT_PACKAGES_DIR}/share/protobuf/protobuf-targets-release.cmake "${RELEASE_MODULE}")
+	vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/share/protobuf/protobuf-targets-release.cmake
+		"\${_IMPORT_PREFIX}/bin/protoc${EXECUTABLE_SUFFIX}"
+		"\${_IMPORT_PREFIX}/tools/protobuf/protoc${EXECUTABLE_SUFFIX}"
+)
 endif()
 
 if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "debug")
@@ -91,10 +95,9 @@ protobuf_try_remove_recurse_wait(${CURRENT_PACKAGES_DIR}/debug/share)
 
 if(CMAKE_HOST_WIN32)
     if(protobuf_BUILD_PROTOC_BINARIES)
-        file(INSTALL ${CURRENT_PACKAGES_DIR}/bin/protoc.exe DESTINATION ${CURRENT_PACKAGES_DIR}/tools/protobuf)
-        vcpkg_copy_tool_dependencies(${CURRENT_PACKAGES_DIR}/tools/protobuf)
+        vcpkg_copy_tools(TOOL_NAMES protoc)
     else()
-        file(COPY ${CURRENT_INSTALLED_DIR}/../x86-windows/tools/protobuf DESTINATION ${CURRENT_PACKAGES_DIR}/tools)
+        file(COPY ${CURRENT_INSTALLED_DIR}/../x86-windows/tools/${PORT} DESTINATION ${CURRENT_PACKAGES_DIR}/tools)
     endif()
 
     if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
@@ -107,22 +110,31 @@ if(CMAKE_HOST_WIN32)
 else()
     file(GLOB EXECUTABLES ${CURRENT_PACKAGES_DIR}/bin/protoc*)
     foreach(E IN LISTS EXECUTABLES)
-        file(INSTALL ${E} DESTINATION ${CURRENT_PACKAGES_DIR}/tools/protobuf
+        file(INSTALL ${E} DESTINATION ${CURRENT_PACKAGES_DIR}/tools/${PORT}
                 PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_WRITE GROUP_EXECUTE WORLD_READ)
     endforeach()
     protobuf_try_remove_recurse_wait(${CURRENT_PACKAGES_DIR}/debug/bin)
     protobuf_try_remove_recurse_wait(${CURRENT_PACKAGES_DIR}/bin)
 endif()
 
-if(EXISTS ${CURRENT_PACKAGES_DIR}/lib/libprotobuf-lite.lib)
-    message(FATAL_ERROR "Expected to not build the lite runtime because it contains some of the same symbols as the full runtime.")
-endif()
-
 if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
-    file(READ ${CURRENT_PACKAGES_DIR}/include/google/protobuf/stubs/platform_macros.h _contents)
-    string(REPLACE "\#endif  // GOOGLE_PROTOBUF_PLATFORM_MACROS_H_" "\#define PROTOBUF_USE_DLLS\n\#endif  // GOOGLE_PROTOBUF_PLATFORM_MACROS_H_" _contents "${_contents}")
-    file(WRITE ${CURRENT_PACKAGES_DIR}/include/google/protobuf/stubs/platform_macros.h "${_contents}")
+	vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/google/protobuf/stubs/platform_macros.h
+		"\#endif  // GOOGLE_PROTOBUF_PLATFORM_MACROS_H_"
+		"\#ifndef PROTOBUF_USE_DLLS\n\#define PROTOBUF_USE_DLLS\n\#endif // PROTOBUF_USE_DLLS\n\n\#endif  // GOOGLE_PROTOBUF_PLATFORM_MACROS_H_"
+)
 endif()
 
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/protobuf RENAME copyright)
+file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
 vcpkg_copy_pdbs()
+set(packages protobuf protobuf-lite)
+foreach(_package IN LISTS packages)
+    set(_file ${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/${_package}.pc)
+    if(EXISTS "${_file}")
+        vcpkg_replace_string(${_file} "-l${_package}" "-l${_package}d")
+    endif()
+endforeach()
+
+if(NOT VCPKG_TARGET_IS_WINDOWS)
+    set(SYSTEM_LIBRARIES SYSTEM_LIBRARIES pthread)
+endif()
+vcpkg_fixup_pkgconfig(${SYSTEM_LIBRARIES})

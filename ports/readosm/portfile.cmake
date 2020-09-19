@@ -1,28 +1,29 @@
-include(vcpkg_common_functions)
-set(SOURCE_PATH ${CURRENT_BUILDTREES_DIR}/src/readosm-1.1.0)
+vcpkg_fail_port_install(ON_TARGET "Linux" "OSX" "UWP")
+
 vcpkg_download_distfile(ARCHIVE
     URLS "http://www.gaia-gis.it/gaia-sins/readosm-sources/readosm-1.1.0.tar.gz"
     FILENAME "readosm-1.1.0.tar.gz"
     SHA512 d3581f564c4461c6a1a3d5fd7d18a262c884b2ac935530064bfaebd6c05d692fb92cc600fb40e87e03f7160ebf0eeeb05f51a0e257935d056b233fe28fc01a11
 )
-vcpkg_extract_source_archive(${ARCHIVE})
 
-vcpkg_apply_patches(
-    SOURCE_PATH ${SOURCE_PATH}
+vcpkg_extract_source_archive_ex(
+    OUT_SOURCE_PATH SOURCE_PATH
+    ARCHIVE ${ARCHIVE}
     PATCHES
-    ${CMAKE_CURRENT_LIST_DIR}/fix-makefiles.patch
-    ${CMAKE_CURRENT_LIST_DIR}/fix-version-macro.patch
+        fix-makefiles.patch
+        fix-version-macro.patch
 )
 
 find_program(NMAKE nmake)
 
-set(LIBS_ALL_DBG "\"${CURRENT_INSTALLED_DIR}/debug/lib/expat.lib\" \"${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib\"")
-set(LIBS_ALL_REL "\"${CURRENT_INSTALLED_DIR}/lib/expat.lib\" \"${CURRENT_INSTALLED_DIR}/lib/zlib.lib\"")
-
 if(VCPKG_CRT_LINKAGE STREQUAL dynamic)
+    set(LIBS_ALL_DBG "\"${CURRENT_INSTALLED_DIR}/debug/lib/libexpatd.lib\" \"${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib\"")
+    set(LIBS_ALL_REL "\"${CURRENT_INSTALLED_DIR}/lib/libexpat.lib\" \"${CURRENT_INSTALLED_DIR}/lib/zlib.lib\"")
 	set(CL_FLAGS_DBG "/MDd /Zi")
 	set(CL_FLAGS_REL "/MD /Ox")
 else()
+    set(LIBS_ALL_DBG "\"${CURRENT_INSTALLED_DIR}/debug/lib/libexpatdMD.lib\" \"${CURRENT_INSTALLED_DIR}/debug/lib/zlibd.lib\"")
+    set(LIBS_ALL_REL "\"${CURRENT_INSTALLED_DIR}/lib/libexpatMD.lib\" \"${CURRENT_INSTALLED_DIR}/lib/zlib.lib\"")
 	set(CL_FLAGS_DBG "/MTd /Zi")
 	set(CL_FLAGS_REL "/MT /Ox")
 endif()
@@ -64,7 +65,6 @@ if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "release")
 endif()
 
 file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/readosm RENAME copyright)
 
 if (VCPKG_LIBRARY_LINKAGE STREQUAL static)
   file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin)
@@ -82,5 +82,7 @@ else()
   endif()
 endif()
 
-
 message(STATUS "Packaging ${TARGET_TRIPLET} done")
+
+#Handle copyright
+file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)

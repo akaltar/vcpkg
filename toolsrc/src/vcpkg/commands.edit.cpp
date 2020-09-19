@@ -1,50 +1,42 @@
-#include "pch.h"
-
 #include <vcpkg/base/strings.h>
 #include <vcpkg/base/system.print.h>
 #include <vcpkg/base/system.process.h>
-#include <vcpkg/commands.h>
+
+#include <vcpkg/commands.edit.h>
 #include <vcpkg/help.h>
 #include <vcpkg/paragraphs.h>
+#include <vcpkg/vcpkgcmdarguments.h>
 
-namespace vcpkg::Commands::Edit
+#include <limits.h>
+
+#if defined(_WIN32)
+namespace
 {
-    static std::vector<fs::path> find_from_registry()
+    std::vector<fs::path> find_from_registry()
     {
         std::vector<fs::path> output;
 
-#if defined(_WIN32)
         struct RegKey
         {
             HKEY root;
-            StringLiteral subkey;
+            vcpkg::StringLiteral subkey;
         } REGKEYS[] = {
-            {
-                HKEY_LOCAL_MACHINE,
-                R"(SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{C26E74D1-022E-4238-8B9D-1E7564A36CC9}_is1)"
-            },
-            {
-                HKEY_LOCAL_MACHINE,
-                R"(SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{1287CAD5-7C8D-410D-88B9-0D1EE4A83FF2}_is1)"
-            },
-            {
-                HKEY_LOCAL_MACHINE,
-                R"(SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{F8A2A208-72B3-4D61-95FC-8A65D340689B}_is1)"
-            },
-            {
-                HKEY_CURRENT_USER,
-                R"(Software\Microsoft\Windows\CurrentVersion\Uninstall\{771FD6B0-FA20-440A-A002-3B3BAC16DC50}_is1)"
-            },
-            {
-                HKEY_LOCAL_MACHINE,
-                R"(SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{EA457B21-F73E-494C-ACAB-524FDE069978}_is1)"
-            },
+            {HKEY_LOCAL_MACHINE,
+             R"(SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{C26E74D1-022E-4238-8B9D-1E7564A36CC9}_is1)"},
+            {HKEY_LOCAL_MACHINE,
+             R"(SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{1287CAD5-7C8D-410D-88B9-0D1EE4A83FF2}_is1)"},
+            {HKEY_LOCAL_MACHINE,
+             R"(SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\{F8A2A208-72B3-4D61-95FC-8A65D340689B}_is1)"},
+            {HKEY_CURRENT_USER,
+             R"(Software\Microsoft\Windows\CurrentVersion\Uninstall\{771FD6B0-FA20-440A-A002-3B3BAC16DC50}_is1)"},
+            {HKEY_LOCAL_MACHINE,
+             R"(SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{EA457B21-F73E-494C-ACAB-524FDE069978}_is1)"},
         };
 
         for (auto&& keypath : REGKEYS)
         {
-            const Optional<std::string> code_installpath =
-                System::get_registry_string(keypath.root, keypath.subkey, "InstallLocation");
+            const vcpkg::Optional<std::string> code_installpath =
+                vcpkg::System::get_registry_string(keypath.root, keypath.subkey, "InstallLocation");
             if (const auto c = code_installpath.get())
             {
                 const fs::path install_path = fs::u8path(*c);
@@ -52,20 +44,50 @@ namespace vcpkg::Commands::Edit
                 output.push_back(install_path / "Code.exe");
             }
         }
-#endif
         return output;
     }
 
-    static constexpr StringLiteral OPTION_BUILDTREES = "--buildtrees";
+    std::string expand_environment_strings(const std::string& input)
+    {
+        const auto widened = vcpkg::Strings::to_utf16(input);
+        std::wstring result;
+        result.resize(result.capacity());
+        bool done;
+        do
+        {
+            if (result.size() == ULONG_MAX)
+            {
+                vcpkg::Checks::exit_fail(VCPKG_LINE_INFO); // integer overflow
+            }
 
-    static constexpr StringLiteral OPTION_ALL = "--all";
+            const auto required_size =
+                ExpandEnvironmentStringsW(widened.c_str(), &result[0], static_cast<unsigned long>(result.size() + 1));
+            if (required_size == 0)
+            {
+                vcpkg::System::print2(vcpkg::System::Color::error, "Error: could not expand the environment string:\n");
+                vcpkg::System::print2(vcpkg::System::Color::error, input);
+                vcpkg::Checks::exit_fail(VCPKG_LINE_INFO);
+            }
+
+            done = required_size <= result.size() + 1;
+            result.resize(required_size - 1);
+        } while (!done);
+        return vcpkg::Strings::to_utf8(result);
+    }
+}
+#endif
+
+namespace vcpkg::Commands::Edit
+{
+    static constexpr StringLiteral OPTION_BUILDTREES = "buildtrees";
+
+    static constexpr StringLiteral OPTION_ALL = "all";
 
     static std::vector<std::string> valid_arguments(const VcpkgPaths& paths)
     {
-        auto sources_and_errors = Paragraphs::try_load_all_ports(paths.get_filesystem(), paths.ports);
+        auto sources_and_errors = Paragraphs::try_load_all_registry_ports(paths);
 
-        return Util::fmap(sources_and_errors.paragraphs,
-                          [](auto&& pgh) -> std::string { return pgh->core_paragraph->name; });
+        return Util::fmap(sources_and_errors.paragraphs, Paragraphs::get_name_of_control_file);
     }
 
     static constexpr std::array<CommandSwitch, 2> EDIT_SWITCHES = {
@@ -73,7 +95,7 @@ namespace vcpkg::Commands::Edit
          {OPTION_ALL, "Open editor into the port as well as the port-specific buildtree subfolder"}}};
 
     const CommandStructure COMMAND_STRUCTURE = {
-        Help::create_example_string("edit zlib"),
+        create_example_string("edit zlib"),
         1,
         10,
         {EDIT_SWITCHES, {}},
@@ -89,25 +111,26 @@ namespace vcpkg::Commands::Edit
             const auto& fs = paths.get_filesystem();
             auto packages = fs.get_files_non_recursive(paths.packages);
 
+            // TODO: Support edit for --overlay-ports
             return Util::fmap(ports, [&](const std::string& port_name) -> std::string {
                 const auto portpath = paths.ports / port_name;
                 const auto portfile = portpath / "portfile.cmake";
-                const auto buildtrees_current_dir = paths.buildtrees / port_name;
+                const auto buildtrees_current_dir = paths.build_dir(port_name);
                 const auto pattern = port_name + "_";
 
                 std::string package_paths;
                 for (auto&& package : packages)
                 {
-                    if (Strings::case_insensitive_ascii_starts_with(package.filename().u8string(), pattern))
+                    if (Strings::case_insensitive_ascii_starts_with(fs::u8string(package.filename()), pattern))
                     {
-                        package_paths.append(Strings::format(" \"%s\"", package.u8string()));
+                        package_paths.append(Strings::format(" \"%s\"", fs::u8string(package)));
                     }
                 }
 
                 return Strings::format(R"###("%s" "%s" "%s"%s)###",
-                                       portpath.u8string(),
-                                       portfile.u8string(),
-                                       buildtrees_current_dir.u8string(),
+                                       fs::u8string(portpath),
+                                       fs::u8string(portfile),
+                                       fs::u8string(buildtrees_current_dir),
                                        package_paths);
             });
         }
@@ -115,15 +138,14 @@ namespace vcpkg::Commands::Edit
         if (Util::Sets::contains(options.switches, OPTION_BUILDTREES))
         {
             return Util::fmap(ports, [&](const std::string& port_name) -> std::string {
-                const auto buildtrees_current_dir = paths.buildtrees / port_name;
-                return Strings::format(R"###("%s")###", buildtrees_current_dir.u8string());
+                return Strings::format(R"###("%s")###", fs::u8string(paths.build_dir(port_name)));
             });
         }
 
         return Util::fmap(ports, [&](const std::string& port_name) -> std::string {
             const auto portpath = paths.ports / port_name;
             const auto portfile = portpath / "portfile.cmake";
-            return Strings::format(R"###("%s" "%s")###", portpath.u8string(), portfile.u8string());
+            return Strings::format(R"###("%s" "%s")###", fs::u8string(portpath), fs::u8string(portfile));
         });
     }
 
@@ -176,12 +198,43 @@ namespace vcpkg::Commands::Edit
 
         const std::vector<fs::path> from_registry = find_from_registry();
         candidate_paths.insert(candidate_paths.end(), from_registry.cbegin(), from_registry.cend());
+
+        const auto txt_default = System::get_registry_string(HKEY_CLASSES_ROOT, R"(.txt\ShellNew)", "ItemName");
+        if (const auto entry = txt_default.get())
+        {
+            auto full_path = expand_environment_strings(*entry);
+            auto first = full_path.begin();
+            const auto last = full_path.end();
+            first = std::find_if_not(first, last, [](const char c) { return c == '@'; });
+            const auto comma = std::find(first, last, ',');
+            candidate_paths.push_back(fs::u8path(first, comma));
+        }
 #elif defined(__APPLE__)
-        candidate_paths.push_back(fs::path{"/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"});
+        candidate_paths.push_back(
+            fs::path{"/Applications/Visual Studio Code - Insiders.app/Contents/Resources/app/bin/code"});
         candidate_paths.push_back(fs::path{"/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"});
 #elif defined(__linux__)
         candidate_paths.push_back(fs::path{"/usr/share/code/bin/code"});
         candidate_paths.push_back(fs::path{"/usr/bin/code"});
+
+        if (System::cmd_execute("command -v xdg-mime") == 0)
+        {
+            auto mime_qry = Strings::format(R"(xdg-mime query default text/plain)");
+            auto execute_result = System::cmd_execute_and_capture_output(mime_qry);
+            if (execute_result.exit_code == 0 && !execute_result.output.empty())
+            {
+                mime_qry = Strings::format(R"(command -v %s)",
+                                           execute_result.output.substr(0, execute_result.output.find('.')));
+                execute_result = System::cmd_execute_and_capture_output(mime_qry);
+                if (execute_result.exit_code == 0 && !execute_result.output.empty())
+                {
+                    execute_result.output.erase(
+                        std::remove(std::begin(execute_result.output), std::end(execute_result.output), '\n'),
+                        std::end(execute_result.output));
+                    candidate_paths.push_back(fs::path{execute_result.output});
+                }
+            }
+        }
 #endif
 
         const auto it = Util::find_if(candidate_paths, [&](const fs::path& p) { return fs.exists(p); });
@@ -199,17 +252,23 @@ namespace vcpkg::Commands::Edit
         const fs::path env_editor = *it;
         const std::vector<std::string> arguments = create_editor_arguments(paths, options, ports);
         const auto args_as_string = Strings::join(" ", arguments);
-        const auto cmd_line = Strings::format(R"("%s" %s -n)", env_editor.u8string(), args_as_string);
+        const auto cmd_line = Strings::format(R"("%s" %s -n)", fs::u8string(env_editor), args_as_string);
 
-        auto editor_exe = env_editor.filename().u8string();
+        auto editor_exe = fs::u8string(env_editor.filename());
 
 #ifdef _WIN32
         if (editor_exe == "Code.exe" || editor_exe == "Code - Insiders.exe")
         {
-            System::cmd_execute_no_wait(cmd_line + " <NUL");
+            // note that we are invoking cmd silently but Code.exe is relaunched from there
+            System::cmd_execute_background(Strings::concat("cmd /c \"", cmd_line, " <NUL\""));
             Checks::exit_success(VCPKG_LINE_INFO);
         }
 #endif
         Checks::exit_with_code(VCPKG_LINE_INFO, System::cmd_execute(cmd_line));
+    }
+
+    void EditCommand::perform_and_exit(const VcpkgCmdArguments& args, const VcpkgPaths& paths) const
+    {
+        Edit::perform_and_exit(args, paths);
     }
 }

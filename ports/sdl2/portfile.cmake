@@ -1,34 +1,37 @@
-include(vcpkg_common_functions)
+set(SDL2_VERSION 2.0.12)
+vcpkg_download_distfile(ARCHIVE
+    URLS "https://www.libsdl.org/release/SDL2-2.0.12.tar.gz"
+    FILENAME "SDL2-${SDL2_VERSION}.tar.gz"
+    SHA512 3f1f04af0f3d9dda9c84a2e9274ae8d83ea0da3fc367970a820036cc4dc1dbf990cfc37e4975ae05f0b45a4ffa739c6c19e470c00bf3f2bce9b8b63717b8b317
+)
 
-vcpkg_from_github(
+vcpkg_extract_source_archive_ex(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO SDL-Mirror/SDL
-    REF release-2.0.9
-    SHA512 444c906c0baa720c86ca72d1b4cd66fdf6f516d5d2a9836169081a2997a5aebaaf9caa687ec060fa02292d79cfa4a62442333e00f90a0239edd1601529f6b056
-    HEAD_REF master
+    ARCHIVE ${ARCHIVE}
     PATCHES
         export-symbols-only-in-shared-build.patch
-        fix-x86-windows.patch
         enable-winrt-cmake.patch
-        SDL-2.0.9-bug-4391-fix.patch # See: https://bugzilla.libsdl.org/show_bug.cgi?id=4391 # Can be removed once SDL 2.0.10 is released
+        disable-hidapi-for-uwp.patch
+        fix-space-in-path.patch
+        disable-wcslcpy-and-wcslcat-for-windows.patch
+        fix-EventToken-header-reference.patch
+        0006-sdl2-Enable-creation-of-pkg-cfg-file-on-windows.patch
 )
 
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" SDL_STATIC)
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" SDL_SHARED)
 string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "static" FORCE_STATIC_VCRT)
 
-set(VULKAN_VIDEO OFF)
-if("vulkan" IN_LIST FEATURES)
-    set(VULKAN_VIDEO ON)
-endif()
+vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    vulkan  VIDEO_VULKAN
+)
 
 vcpkg_configure_cmake(
     SOURCE_PATH ${SOURCE_PATH}
     PREFER_NINJA
-    OPTIONS
+    OPTIONS ${FEATURE_OPTIONS}
         -DSDL_STATIC=${SDL_STATIC}
         -DSDL_SHARED=${SDL_SHARED}
-        -DVIDEO_VULKAN=${VULKAN_VIDEO}
         -DFORCE_STATIC_VCRT=${FORCE_STATIC_VCRT}
         -DLIBC=ON
 )
@@ -36,11 +39,11 @@ vcpkg_configure_cmake(
 vcpkg_install_cmake()
 
 if(EXISTS "${CURRENT_PACKAGES_DIR}/cmake")
-    vcpkg_fixup_cmake_targets(CONFIG_PATH "cmake")
+    vcpkg_fixup_cmake_targets(CONFIG_PATH cmake)
 elseif(EXISTS "${CURRENT_PACKAGES_DIR}/lib/cmake/SDL2")
-    vcpkg_fixup_cmake_targets(CONFIG_PATH "lib/cmake/SDL2")
+    vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/SDL2)
 elseif(EXISTS "${CURRENT_PACKAGES_DIR}/SDL2.framework/Resources")
-    vcpkg_fixup_cmake_targets(CONFIG_PATH "SDL2.framework/Resources")
+    vcpkg_fixup_cmake_targets(CONFIG_PATH SDL2.framework/Resources)
 endif()
 
 file(REMOVE_RECURSE
@@ -78,6 +81,20 @@ if(NOT VCPKG_CMAKE_SYSTEM_NAME)
     endforeach()
 endif()
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake DESTINATION ${CURRENT_PACKAGES_DIR}/share/sdl2)
-configure_file(${SOURCE_PATH}/COPYING.txt ${CURRENT_PACKAGES_DIR}/share/sdl2/copyright COPYONLY)
+file(COPY ${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT})
+configure_file(${SOURCE_PATH}/COPYING.txt ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright COPYONLY)
 vcpkg_copy_pdbs()
+
+set(DYLIB_COMPATIBILITY_VERSION_REGEX "set\\(DYLIB_COMPATIBILITY_VERSION (.+)\\)")
+set(DYLIB_CURRENT_VERSION_REGEX "set\\(DYLIB_CURRENT_VERSION (.+)\\)")
+file(STRINGS "${SOURCE_PATH}/CMakeLists.txt" DYLIB_COMPATIBILITY_VERSION REGEX ${DYLIB_COMPATIBILITY_VERSION_REGEX})
+file(STRINGS "${SOURCE_PATH}/CMakeLists.txt" DYLIB_CURRENT_VERSION REGEX ${DYLIB_CURRENT_VERSION_REGEX})
+string(REGEX REPLACE ${DYLIB_COMPATIBILITY_VERSION_REGEX} "\\1" DYLIB_COMPATIBILITY_VERSION "${DYLIB_COMPATIBILITY_VERSION}")
+string(REGEX REPLACE ${DYLIB_CURRENT_VERSION_REGEX} "\\1" DYLIB_CURRENT_VERSION "${DYLIB_CURRENT_VERSION}")
+
+vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/sdl2.pc" "-lSDL2" "-lSDL2d")
+
+vcpkg_fixup_pkgconfig(
+    IGNORE_FLAGS "-Wl,-rpath,${CURRENT_PACKAGES_DIR}/lib/pkgconfig/../../lib" "-Wl,-rpath,${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/../../lib" "-Wl,--enable-new-dtags" "-Wl,--no-undefined" "-Wl,-undefined,error" "-Wl,-compatibility_version,${DYLIB_COMPATIBILITY_VERSION}" "-Wl,-current_version,${DYLIB_CURRENT_VERSION}" "-Wl,-weak_framework,Metal" "-Wl,-weak_framework,QuartzCore"
+    SYSTEM_LIBRARIES dbus-1
+)

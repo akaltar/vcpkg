@@ -1,15 +1,13 @@
-include(vcpkg_common_functions)
+vcpkg_fail_port_install(ON_TARGET "osx")
 
 vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ArtifexSoftware/mupdf
-    REF 1.12.0
-    SHA512 893a1958e34355acf73624e9c47f4a97adf13d5fe33604ac384df9ac22a56ef7c18e02143eaffc3c2a08f460e4c71fee00c094b6d6696f8446977bb18f65e3da
+    REF 96751b25462f83d6e16a9afaf8980b0c3f979c8b # 1.17.0
+    SHA512 ee8603a606895c7362fc44905f627f2a05e3c9d8a682b27051b5c67dac971719e315a08da3cd51107024bcc67d7d43cafcb9a6ad8b534c89a55982001f400537
     HEAD_REF master
-	PATCHES
-        "${CURRENT_PORT_DIR}/Fix-error-C2169.patch"
 )
 
 file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
@@ -18,6 +16,8 @@ vcpkg_configure_cmake(
     SOURCE_PATH "${SOURCE_PATH}"
     DISABLE_PARALLEL_CONFIGURE
     PREFER_NINJA
+    OPTIONS
+        -DBUILD_EXAMPLES=OFF
 )
 
 vcpkg_install_cmake()
@@ -26,6 +26,4 @@ file(COPY ${SOURCE_PATH}/include/mupdf DESTINATION ${CURRENT_PACKAGES_DIR}/inclu
 
 vcpkg_copy_pdbs()
 
-#copyright
-file(COPY ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT})
-file(RENAME ${CURRENT_PACKAGES_DIR}/share/${PORT}/COPYING ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright)
+file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)

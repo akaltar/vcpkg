@@ -3,7 +3,13 @@ project(sqlite3 C)
 
 include_directories(.)
 if(BUILD_SHARED_LIBS)
-    set(API "-DSQLITE_API=__declspec(dllexport)")
+    if(UNIX)
+        set(API "-DSQLITE_API=__attribute__((visibility(\"default\")))")
+    elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+        set(API "-DSQLITE_API=__declspec(dllexport)")
+    else()
+        message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
+    endif()
 else()
     set(API "-DSQLITE_API=extern")
 endif()
@@ -18,6 +24,15 @@ target_compile_definitions(
         -DSQLITE_ENABLE_UNLOCK_NOTIFY
         -DSQLITE_ENABLE_COLUMN_METADATA
 )
+
+if(WITH_GEOPOLY)
+    add_compile_definitions(SQLITE_ENABLE_GEOPOLY)
+endif()
+
+if(WITH_JSON1)
+    add_compile_definitions(SQLITE_ENABLE_JSON1)
+endif()
+
 target_include_directories(sqlite3 INTERFACE $<INSTALL_INTERFACE:include>)
 if(NOT WIN32)
     find_package(Threads REQUIRED)
@@ -30,7 +45,6 @@ endif()
 
 if(NOT SQLITE3_SKIP_TOOLS)
     add_executable(sqlite3-bin shell.c)
-    set_target_properties(sqlite3-bin PROPERTIES OUTPUT_NAME sqlite3)
     target_link_libraries(sqlite3-bin PRIVATE sqlite3)
     install(TARGETS sqlite3-bin sqlite3
       RUNTIME DESTINATION tools
@@ -41,11 +55,11 @@ endif()
 
 install(
     TARGETS sqlite3
-    EXPORT sqlite3
+    EXPORT unofficial-sqlite3-targets
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )
 
 install(FILES sqlite3.h sqlite3ext.h DESTINATION include CONFIGURATIONS Release)
-install(EXPORT sqlite3 FILE sqlite3-targets.cmake DESTINATION share/sqlite3)
+install(EXPORT unofficial-sqlite3-targets NAMESPACE unofficial::sqlite3:: FILE unofficial-sqlite3-targets.cmake DESTINATION share/unofficial-sqlite3)

@@ -1,30 +1,29 @@
-include(vcpkg_common_functions)
+vcpkg_fail_port_install(ON_ARCH "arm" ON_ARCH "wasm32" ON_TARGET "uwp")
 
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO blend2d/blend2d
-  REF 69141350b5a654f328c8529ae301aa1e6bad5342
-  SHA512 d9bdd234f443c0ef8793dba1a76cc567bab3f9cf32d835d9e285f7ad946a56e0bc03eab30f61bbce51318e18a74ecfcfc965ac94e1ff6cef21e9b3ccc6a42120
+  REF 960fe2fa6c93b1026a10e3db15e06db77d6817a3
+  SHA512 232546d17de7f7f2f6a67ba2d88d1fca30ac6d9199216f98294e1bd0ec4e9dd33cc78a262f89da3ba1f433e9efbecded5866ddbc20f150c6a804c02687650270
   HEAD_REF master
 )
 
-string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" BLEND2D_BUILD_STATIC)
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" BLEND2D_STATIC)
 
-if(NOT ("jit" IN_LIST FEATURES))
-  set(BLEND2D_BUILD_NO_JIT TRUE)
-endif()
-if(NOT ("logging" IN_LIST FEATURES))
-  set(BLEND2D_BUILD_NO_LOGGING TRUE)
-endif()
-
+vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+  INVERTED_FEATURES
+    jit        BLEND2D_NO_JIT
+    logging    BLEND2D_NO_JIT_LOGGING
+    tls        BLEND2D_NO_TLS
+)
 
 if(NOT BLEND2D_BUILD_NO_JIT)
   vcpkg_from_github(
     OUT_SOURCE_PATH ASMJIT_SOURCE_PATH
     REPO asmjit/asmjit
-    REF f4e685cef003c40ad0d348d0c9eb2a1fe63d8521
-    SHA512 77981fc32e746fc88f5707b4a8e8557283261b2657248f0d4900f47bd500de4efe47619a53f32413ea3c6f116e084cac6fdb48b6b92d75e824585d94c785d2b1
-    HEAD_REF next-wip
+    REF 8f25116f2bea8f5e0604dae867be817e3f12bac1
+    SHA512 708ddb7bcd73e76e6485330f8935d64bbe27d526807fb877234303032247dc900751963c935d2a391fddb133eea6ae4300ade061d9202ed7f767e388e379abc8
+    HEAD_REF master
   )
 
   file(REMOVE_RECURSE ${SOURCE_PATH}/3rdparty/asmjit)
@@ -38,11 +37,9 @@ vcpkg_configure_cmake(
     SOURCE_PATH ${SOURCE_PATH}
     PREFER_NINJA
     OPTIONS
-        -DBLEND2D_BUILD_STATIC=${BLEND2D_BUILD_STATIC}
-        -DBLEND2D_BUILD_NO_JIT=${BLEND2D_BUILD_NO_JIT}
-        -DBLEND2D_BUILD_NO_LOGGING=${BLEND2D_BUILD_NO_LOGGING}
+        -DBLEND2D_STATIC=${BLEND2D_STATIC}
+        ${FEATURE_OPTIONS}
 )
-
 
 vcpkg_install_cmake()
 vcpkg_copy_pdbs()
@@ -50,11 +47,15 @@ vcpkg_copy_pdbs()
 file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
 
 
-if(BLEND2D_BUILD_STATIC)
+if(BLEND2D_STATIC)
   file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin ${CURRENT_PACKAGES_DIR}/debug/bin)
 endif()
 
 
-
 # Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/blend2d RENAME copyright)
+configure_file(${SOURCE_PATH}/LICENSE.md ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright COPYONLY)
+
+if(BLEND2D_STATIC)
+  # Install usage
+  configure_file(${CMAKE_CURRENT_LIST_DIR}/usage ${CURRENT_PACKAGES_DIR}/share/${PORT}/usage @ONLY)
+endif()

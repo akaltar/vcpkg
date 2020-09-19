@@ -1,17 +1,3 @@
-# Common Ambient Variables:
-#   CURRENT_BUILDTREES_DIR    = ${VCPKG_ROOT_DIR}\buildtrees\${PORT}
-#   CURRENT_PACKAGES_DIR      = ${VCPKG_ROOT_DIR}\packages\${PORT}_${TARGET_TRIPLET}
-#   CURRENT_PORT_DIR          = ${VCPKG_ROOT_DIR}\ports\${PORT}
-#   PORT                      = current port name (zlib, etc)
-#   TARGET_TRIPLET            = current triplet (x86-windows, x64-windows-static, etc)
-#   VCPKG_CRT_LINKAGE         = C runtime linkage type (static, dynamic)
-#   VCPKG_LIBRARY_LINKAGE     = target library linkage type (static, dynamic)
-#   VCPKG_ROOT_DIR            = <C:\path\to\current\vcpkg>
-#   VCPKG_TARGET_ARCHITECTURE = target architecture (x64, x86, arm)
-#
-
-include(vcpkg_common_functions)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO orocos/orocos_kinematics_dynamics
@@ -30,18 +16,20 @@ vcpkg_configure_cmake(
 
 vcpkg_install_cmake()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH "share/orocos_kdl/cmake" TARGET_PATH share/orocos_kdl)
+vcpkg_fixup_cmake_targets(CONFIG_PATH share/orocos_kdl/cmake TARGET_PATH share/orocos_kdl)
 
-file(REMOVE_RECURSE 
+file(READ ${CURRENT_PACKAGES_DIR}/share/orocos_kdl/orocos_kdl-config.cmake _contents)
+string(REPLACE "\${CMAKE_CURRENT_LIST_DIR}/../../.." "\${CMAKE_CURRENT_LIST_DIR}/../.." _contents "${_contents}")
+string(REPLACE "\${_IMPORT_PREFIX}" "\${CMAKE_CURRENT_LIST_DIR}/../.." _contents "${_contents}")
+file(WRITE ${CURRENT_PACKAGES_DIR}/share/orocos_kdl/orocos_kdl-config.cmake "${_contents}")
+
+file(REMOVE_RECURSE
   ${CURRENT_PACKAGES_DIR}/debug/include
   ${CURRENT_PACKAGES_DIR}/debug/share
   ${CURRENT_PACKAGES_DIR}/share/doc
   ${CURRENT_PACKAGES_DIR}/doc/liborocos-kdl)
-  
 
-
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/orocos_kdl/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/orocos-kdl RENAME copyright)
+file(INSTALL ${SOURCE_PATH}/orocos_kdl/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
 
 # Post-build test for cmake libraries
 # vcpkg_test_cmake(PACKAGE_NAME orocos-kdl)

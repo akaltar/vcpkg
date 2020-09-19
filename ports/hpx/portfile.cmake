@@ -1,13 +1,12 @@
-include(vcpkg_common_functions)
 
 vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO STEllAR-GROUP/hpx
-    REF 1.2.1
-    SHA512 46e9e36cbd9bec935b2a1efce8167c641de88aca8e4dd9c2e3269a1d82ab2965812b5483b6dff4465634f454757b19ad4f73ddcc5ddd73d6efbf28d0819f7dc7
-    HEAD_REF master
+    REF 1.5.0
+    SHA512 3ce52def94d2d76bc19f0c3a411581a69af95123bbc38b4bd777b8d89523d0e22769ac2e7bb62c756f0126f39c378dfdd503a10499d3497bfe40cc71c046c70b
+    HEAD_REF stable
 )
 
 vcpkg_configure_cmake(
@@ -42,13 +41,14 @@ foreach(CMAKE_FILE IN LISTS CMAKE_FILES)
     file(WRITE ${CMAKE_FILE} "${_contents}")
 endforeach()
 
-file(READ "${CURRENT_PACKAGES_DIR}/share/hpx/HPXMacros.cmake" _contents)
-string(REPLACE "set(CMAKE_MODULE_PATH \${CMAKE_MODULE_PATH} \"\${CMAKE_CURRENT_LIST_DIR}/../../lib/cmake/HPX\")" "list(APPEND CMAKE_MODULE_PATH \"\${CMAKE_CURRENT_LIST_DIR}\")" _contents "${_contents}")
-file(WRITE "${CURRENT_PACKAGES_DIR}/share/hpx/HPXMacros.cmake" "${_contents}")
+vcpkg_replace_string(
+    "${CURRENT_PACKAGES_DIR}/share/${PORT}/HPXMacros.cmake"
+    "set(CMAKE_MODULE_PATH \${CMAKE_MODULE_PATH} \"\${CMAKE_CURRENT_LIST_DIR}\")"
+    "list(APPEND CMAKE_MODULE_PATH \"\${CMAKE_CURRENT_LIST_DIR}\")")
 
 file(INSTALL
     ${SOURCE_PATH}/LICENSE_1_0.txt
-    DESTINATION ${CURRENT_PACKAGES_DIR}/share/hpx RENAME copyright)
+    DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
 
 file(GLOB DLLS ${CURRENT_PACKAGES_DIR}/lib/*.dll)
 if(DLLS)
